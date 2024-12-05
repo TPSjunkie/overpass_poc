@@ -1,112 +1,91 @@
-// File: overpass_wasm/src/channel.rs
-
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
-use crate::state::ChannelState;
-use crate::transaction::Transaction;
-use crate::storage::ClientStorage;
+use wasm_bindgen::JsValue;
 
-
+/// A simplified serializable transaction structure for WebAssembly.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[wasm_bindgen]
-pub struct Channel {
-    storage: ClientStorage,
-    current_state: ChannelState,
-    pending_transactions: Vec<Transaction>,
+pub struct Transaction {
+    pub amount: u64,
+    #[wasm_bindgen(skip)]
+    pub data: Vec<u8>,
+    pub nonce: u64,
+    pub timestamp: u64,
+    #[wasm_bindgen(skip)]
+    pub signature: Vec<u8>,
 }
 
-
 #[wasm_bindgen]
-impl Channel {
+impl Transaction {
+    /// Creates a new transaction with placeholder signature and current timestamp.
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Result<Channel, JsValue> {
-        let storage = ClientStorage::default();
-        let current_state = ChannelState::default();
-        
-        Ok(Self {
-            storage,
-            current_state,
-            pending_transactions: Vec::new(),
-        })
-    }
-
-    /// Process a new transaction - this simulates network broadcast
-    pub async fn process_transaction(&mut self, amount: u64, data: &[u8]) -> Result<StateUpdate, JsValue> {
-        // Create the transaction
-        let transaction = Transaction {
+    pub fn new(amount: u64, data: Vec<u8>, nonce: u64) -> Self {
+        let timestamp = js_sys::Date::now() as u64;
+        let signature = Vec::new(); // Placeholder for actual signature.
+        Self {
             amount,
-            data: data.to_vec(),
-            nonce: self.current_state.nonce + 1,
-        };
-
-        // Generate proof for state transition
-        let proof = Vec::new(); // Placeholder for proof generation
-        
-        // Create state update
-        let update = StateUpdate {
-            nonce: self.current_state.nonce + 1,
-            balance: self.current_state.balance + amount,
-            merkle_root: vec![], // Placeholder
-            cell_hash: vec![], // Placeholder
-        };
-
-        // Simulate network broadcast
-        self.broadcast_update(&update).await?;
-
-        // Store pending transaction
-        self.pending_transactions.push(transaction);
-
-        Ok(update)
-    }
-
-    /// Simulate receiving an update from the network
-    async fn receive_update(&mut self, update: StateUpdate) -> Result<(), JsValue> {
-        // Verify the proof
-        if !self.verify_proof(&vec![]) {
-            return Err(JsValue::from_str("Invalid proof"));
+            data,
+            nonce,
+            timestamp,
+            signature,
         }
-
-        // Apply the update to our state
-        self.apply_update(&update);
-
-        // Store the new state
-        self.storage.save_state("channel-1", &self.current_state);
-
-        Ok(())
     }
 
-    /// Simulate broadcasting an update to the network 
-    async fn broadcast_update(&mut self, update: &StateUpdate) -> Result<(), JsValue> {
-        // In testing, we immediately process the update locally
-        // In production, this would actually broadcast to the network
-        self.receive_update(update.clone()).await
+    /// Serializes the transaction to a `Vec<u8>`.
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.amount.to_le_bytes());
+        bytes.extend_from_slice(&self.nonce.to_le_bytes());
+        bytes.extend_from_slice(&self.timestamp.to_le_bytes());
+        bytes.extend_from_slice(&self.data);
+        bytes.extend_from_slice(&self.signature);
+        bytes
     }
 
-    // Placeholder methods for proof generation, verification, and update application
-    fn verify_proof(&self, _proof: &Vec<u8>) -> bool {
-        true // Placeholder implementation
+    /// Converts the transaction to a `JsValue`.
+    #[wasm_bindgen(js_name = toJsValue)]
+    pub fn to_js_value(&self) -> Result<JsValue, JsValue> {
+        serde_wasm_bindgen::to_value(self).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    fn apply_update(&mut self, _update: &StateUpdate) {
-        // Placeholder implementation
+    /// Creates a transaction from a `JsValue`.
+    #[wasm_bindgen(js_name = fromJsValue)]
+    pub fn from_js_value(value: JsValue) -> Result<Transaction, JsValue> {
+        serde_wasm_bindgen::from_value(value).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn data(&self) -> Vec<u8> {
+        self.data.clone()
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_data(&mut self, data: Vec<u8>) {
+        self.data = data;
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn signature(&self) -> Vec<u8> {
+        self.signature.clone()
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_signature(&mut self, signature: Vec<u8>) {
+        self.signature = signature;
     }
 }
 
-// Placeholder implementation for ClientStorage
-impl ClientStorage {
-    fn save_state(&self, _key: &str, _state: &ChannelState) {
-        // Placeholder implementation
-    }
+/// Handle conversion of `Option<T>` to `JsValue`.
+pub fn option_to_js_value<T: Serialize>(option: Option<T>) -> Result<JsValue, JsValue> {
+    option
+        .map_or(Ok(JsValue::NULL), |value| serde_wasm_bindgen::to_value(&value).map_err(|e| JsValue::from_str(&e.to_string())))
 }
 
-impl Default for ClientStorage {
-    fn default() -> Self {
-        Self { } // Placeholder implementation
+/// Handle conversion of `JsValue` to `Option<T>`.
+pub fn js_value_to_option<T: for<'de> Deserialize<'de>>(value: JsValue) -> Result<Option<T>, JsValue> {
+    if value.is_null() || value.is_undefined() {
+        Ok(None)
+    } else {
+        serde_wasm_bindgen::from_value(value).map(Some).map_err(|e| JsValue::from_str(&e.to_string()))
     }
-}
-
-#[derive(Clone)]
-struct StateUpdate {
-    nonce: u64,
-    balance: u64,
-    merkle_root: Vec<u8>,
-    cell_hash: Vec<u8>,
 }

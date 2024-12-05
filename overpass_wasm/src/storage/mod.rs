@@ -14,18 +14,22 @@ impl ClientStorage {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<ClientStorage, JsValue> {
         // Get window.localStorage
-        let window: Window = web_sys::window().ok_or_else(|| JsValue::from_str("No window found"))?;
-        let storage = window.local_storage()?.ok_or_else(|| JsValue::from_str("No localStorage found"))?;
-        
+        let window: Window =
+            web_sys::window().ok_or_else(|| JsValue::from_str("No window found"))?;
+        let storage = window
+            .local_storage()?
+            .ok_or_else(|| JsValue::from_str("No localStorage found"))?;
+
         Ok(Self { storage })
     }
 
     #[wasm_bindgen(js_name = saveState)]
     pub fn save_state(&self, channel_id: &str, state: &JsValue) -> Result<(), JsValue> {
         // Store in localStorage
-        self.storage.set_item(channel_id, &state.as_string().unwrap_or_default())
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-            
+        self.storage
+            .set_item(channel_id, &state.as_string().unwrap_or_default())
+            .map_err(|e| JsValue::from(format!("{:?}", e)))?;
+
         Ok(())
     }
 
@@ -43,7 +47,7 @@ impl ClientStorage {
     #[wasm_bindgen(js_name = listChannels)]
     pub fn list_channels(&self) -> Result<Vec<String>, JsValue> {
         let mut channels = Vec::new();
-        
+
         // Iterate localStorage keys
         for i in 0..self.storage.length()? {
             if let Some(key) = self.storage.key(i)? {
@@ -52,7 +56,7 @@ impl ClientStorage {
                 }
             }
         }
-        
+
         Ok(channels)
     }
 }

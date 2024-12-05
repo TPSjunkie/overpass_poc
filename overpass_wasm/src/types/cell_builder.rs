@@ -1,7 +1,7 @@
 // src/types/cell_builder.rs
 
-use serde::{Deserialize, Serialize};
 use crate::error::client_errors::{SystemError, SystemErrorType};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 

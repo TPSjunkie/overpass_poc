@@ -2,44 +2,67 @@
 
 import { ChannelConfig } from "../types";
 
-// This module provides a wrapper for the HTLC contract
-
-interface HTLCConfig {
-// Add necessary properties for HTLCConfig
-}
-
 interface HTLCState {
-// Add necessary properties for HTLCState
+    hashLock: Uint8Array;
+    timeLock: number;
+    amount: number;
+    sender: Uint8Array;
+    recipient: Uint8Array;
+    claimed: boolean;
+    refunded: boolean;
 }
 
 export class HTLCWrapper {
-  private contract: any;
+    private contract: any;
+    private htlcState: HTLCState;
 
-  constructor(contract: any) {
-      this.contract = contract;
-  }
+    constructor(hashLock: Uint8Array, timeLock: number, amount: number, sender: Uint8Array, recipient: Uint8Array) {
+        this.htlcState = {
+            hashLock,
+            timeLock,
+            amount,
+            sender,
+            recipient,
+            claimed: false,
+            refunded: false
+        };
+    }
 
-  async createHTLC(config: HTLCConfig): Promise<HTLCState> {
-      const state = await this.contract.create_htlc_state(config);
-      return state;
-  }
+    claim(preimage: Uint8Array): void {
+        // Verify the hash of the preimage matches the hashLock
+        const verifyHash = async () => {
+            const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', preimage));
+            return hash.every((value, index) => value === this.htlcState.hashLock[index]);
+        };
 
-  async updateHTLC(config: HTLCConfig): Promise<HTLCState> {
-      const state = await this.contract.update_state(config);
-      return state;
-  }
+        if (!verifyHash()) {
+            throw new Error("Invalid preimage");
+        }
 
-  async finalizeHTLC(config: HTLCConfig): Promise<HTLCState> {
-      const state = await this.contract.finalize_state(config);
-      return state;
-  }
+        if (this.htlcState.claimed || this.htlcState.refunded) {
+            throw new Error("HTLC already claimed or refunded");
+        }
 
-  async disputeHTLC(config: HTLCConfig): Promise<HTLCState> {
-      const state = await this.contract.dispute_state(config);
-      return state;
-  }
+        this.htlcState.claimed = true;
+    }
 
-  async initChannel(config: ChannelConfig): Promise<void> {
-      await this.contract.init_channel(config);
-  }
+    refund(currentTime: number): void {
+        if (currentTime <= this.htlcState.timeLock) {
+            throw new Error("Time lock not expired");
+        }
+
+        if (this.htlcState.claimed || this.htlcState.refunded) {
+            throw new Error("HTLC already claimed or refunded");
+        }
+
+        this.htlcState.refunded = true;
+    }
+
+    getState(): HTLCState {
+        return { ...this.htlcState };
+    }
+
+    async initChannel(config: ChannelConfig): Promise<void> {
+        await this.contract?.init_channel(config);
+    }
 }

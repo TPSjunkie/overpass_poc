@@ -15,4 +15,5 @@ pub use bitcoin_types::{HTLCParameters, StealthAddress};
 pub use zkp_handler::BitcoinHtlcProof;
 pub use stealth_addresses::{StealthAddressGenerator, StealthAddressManager};
 pub use rpc_client::{BitcoinRpcClient, BitcoinRpcConfig};
-pub use bitcoin_transaction::{BitcoinLockState, BitcoinTransaction};
+pub use bitcoin_transaction::BitcoinTransaction;
+pub use bitcoin_types::BitcoinLockState;

@@ -3,11 +3,5 @@
 pub mod client_errors;
 
 pub use client_errors::{
-    SystemError,
-    SystemErrorType,
-    ChannelError,
-    ChannelErrorType,
-    ClientError,
-    ClientErrorType,
+    ChannelError, ChannelErrorType, ClientError, ClientErrorType, SystemError, SystemErrorType,
 };
-

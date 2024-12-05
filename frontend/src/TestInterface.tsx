@@ -65,7 +65,7 @@ export function TestInterface() {
     setCurrentProgress(0);
     try {
       await measurePerformance('Channel Initialization', async () => {
-        const result = await initialize();
+        const result = await initialize({ network: 'mainnet', initial_balance: 1000, security_bits: 256 });
         return result ?? {};
       });
 

@@ -1,6 +1,3 @@
-
-
-
 // client_errors.rs
 
 use serde::{Deserialize, Serialize};
@@ -104,7 +101,7 @@ pub enum SystemErrorType {
     SerializationFailed,
     InvalidAddress,
     SerializationError,
-    DeserializationFailed,  
+    DeserializationFailed,
     InvalidHash,
     NotImplemented,
     CryptoError,
@@ -422,12 +419,16 @@ impl fmt::Display for StateBocError {
             StateBocError::InvalidReference { from, to } => {
                 return write!(f, "Invalid reference from {} to {}", from, to)
             }
-            StateBocError::InvalidRoot(index) => return write!(f, "Invalid root at index {}", index),
+            StateBocError::InvalidRoot(index) => {
+                return write!(f, "Invalid root at index {}", index)
+            }
             StateBocError::InvalidMerkleProof => "Invalid Merkle proof",
             StateBocError::InvalidPrunedBranch => "Invalid pruned branch",
             StateBocError::CycleDetected => "Cycle detected",
             StateBocError::MaxDepthExceeded => "Max depth exceeded",
-            StateBocError::SerializationError(err) => return write!(f, "Serialization error: {}", err),
+            StateBocError::SerializationError(err) => {
+                return write!(f, "Serialization error: {}", err)
+            }
             StateBocError::DeserializationError(err) => {
                 return write!(f, "Deserialization error: {}", err)
             }
@@ -435,7 +436,6 @@ impl fmt::Display for StateBocError {
         write!(f, "{}", error_str)
     }
 }
-
 
 /// Global errors
 #[derive(Debug)]
@@ -458,7 +458,7 @@ impl From<GlobalStateError> for String {
             GlobalStateError::GlobalMerkleCircuitError => "Global Merkle circuit error".to_string(),
         }
     }
-}   
+}
 
 impl fmt::Display for GlobalStateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -470,7 +470,5 @@ impl fmt::Display for GlobalStateError {
         write!(f, "{}", error_str)
     }
 }
-
-
 
 impl std::error::Error for StateBocError {}

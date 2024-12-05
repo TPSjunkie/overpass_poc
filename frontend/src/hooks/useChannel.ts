@@ -1,7 +1,7 @@
 // src// File: frontend/src/hooks/useChannel.ts
 
 import { useState, useCallback } from 'react';
-import init, { Channel } from '@/pkg/overpass_wasm';
+import { init, Channel } from '@/pkg/overpass_wasm';
 
 interface ChannelConfig {
     network: 'mainnet' | 'testnet' | 'regtest';
@@ -27,7 +27,7 @@ export class ChannelManager {
   private channel: Channel | null = null;
   private initialized = false;
 
-  async initialize() {
+  async initialize(p0: { network: string; initial_balance: number; security_bits: number; }) {
     if (!this.initialized) {
       await init();
       const config: ChannelConfig = {
@@ -121,8 +121,8 @@ export class ChannelManager {
 export function useChannel() {
   const [channelManager] = useState(() => new ChannelManager());
 
-  const initialize = useCallback(async () => {
-    return await channelManager.initialize();
+  const initialize = useCallback(async (params: { network: string; initial_balance: number; security_bits: number; }) => {
+    return await channelManager.initialize(params);
   }, [channelManager]);
 
   return {

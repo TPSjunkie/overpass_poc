@@ -2,7 +2,7 @@
 
 
 import { Channel } from "@/pkg/overpass_wasm";
-import init from "@/pkg/overpass_wasm";
+import { init } from "@/pkg/overpass_wasm";
 // src/lib/channel.ts
 import { initWasm } from '@/wasm';
 

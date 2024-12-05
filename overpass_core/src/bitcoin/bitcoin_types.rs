@@ -117,8 +117,7 @@ impl OpReturnMetadata {
             nonce,
         }
     }
-}
-impl OpReturnMetadata {
+
     pub fn encode(&self) -> Result<Vec<u8>, BitcoinStateError> {
         serde_json::to_vec(self).map_err(|e| BitcoinStateError::EncodingError(e.to_string()))
     }
@@ -198,24 +197,20 @@ impl BitcoinLockState {
         &self,
         next_state: &BitcoinLockState,
     ) -> Result<bool, BitcoinStateError> {
-        // Verify lock height progression
         if next_state.lock_height <= self.lock_height {
             return Ok(false);
         }
 
-        // Verify HTLC conditions if present
         if let Some(htlc) = &self.htlc_params {
             if !htlc.verify_timelock(next_state.lock_height as u32) {
                 return Ok(false);
             }
         }
 
-        // Verify nonce increment
         if next_state.nonce <= self.nonce {
             return Ok(false);
         }
 
-        // Compute and compare state hashes
         let current_hash = self.compute_state_hash().await?;
         let next_hash = next_state.compute_state_hash().await?;
 
@@ -223,7 +218,6 @@ impl BitcoinLockState {
             return Ok(false);
         }
 
-        // Cache the new state
         let mut cache = self.state_cache.write().await;
         cache.insert(
             next_hash,

@@ -107,7 +107,10 @@ impl DAGBOC {
                 }
             }
             OpCode::RemoveReference { from, to } => {
-                if let Some(index) = self.references.iter().position(|&(f, t)| f == from && t == to)
+                if let Some(index) = self
+                    .references
+                    .iter()
+                    .position(|&(f, t)| f == from && t == to)
                 {
                     self.references.remove(index);
                 } else {

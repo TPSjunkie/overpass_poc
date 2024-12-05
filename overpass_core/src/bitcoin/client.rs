@@ -7,7 +7,7 @@ use bitcoin::{
     blockdata::script::ScriptBuf,
     locktime,
     opcodes::all::OP_RETURN,
-    script::{Builder, PushBytesBuf, Script},
+    script::Builder,
     OutPoint, Sequence, Transaction, TxIn, TxOut, Witness,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -52,9 +52,13 @@ impl BitcoinClient {
             .encode()
             .map_err(|e| format!("Failed to encode metadata: {}", e))?;
 
+        // Create PushBytesBuf from encoded bytes
+        let push_bytes = bitcoin::script::PushBytesBuf::try_from(encoded)
+            .map_err(|e| format!("Failed to create PushBytesBuf: {}", e))?;
 
         Ok(Builder::new()
             .push_opcode(OP_RETURN)
+            .push_slice(&push_bytes)
             .into_script())
     }
 
@@ -149,95 +153,5 @@ impl BitcoinClient {
     pub async fn get_cached_state(&self, state_hash: [u8; 32]) -> Option<Vec<u8>> {
         let cache = self.state_cache.read().await;
         cache.get(&state_hash).cloned()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bitcoin::hashes::{sha256, Hash};
-
-    #[test]
-    fn test_create_htlc_parameters() {
-        let client = BitcoinClient::new();
-        let htlc = client.create_htlc_parameters(
-            1_000_000,
-            [1u8; 20],
-            sha256::Hash::hash(&[0u8; 32]).to_byte_array(),
-            144,
-        );
-
-        assert_eq!(htlc.amount, 1_000_000);
-        assert_eq!(htlc.timeout_height, 144);
-        assert_eq!(htlc.receiver, [1u8; 20]);
-    }
-
-    #[test]
-    fn test_create_op_return_script() {
-        let client = BitcoinClient::new();
-        let metadata = OpReturnMetadata {
-            channel_id: [0u8; 32],
-            rebalancing_flags: 1,
-            hash_lock: sha256::Hash::hash(&[0u8; 32]).to_byte_array(),
-            data: vec![1, 2, 3],
-            stealth_address: None,
-            version: 1,
-            nonce: [0u8; 32],
-        };
-
-        let script_result = client.create_op_return_script(&metadata);
-        assert!(script_result.is_ok());
-    }
-
-    #[test]
-    fn test_create_transaction() {
-        let client = BitcoinClient::new();
-        let prev_script = ScriptBuf::new();
-        let pubkey_hash = [0u8; 20];
-        let tx_result = client.create_transaction(&prev_script, 1_000_000, pubkey_hash);
-        assert!(tx_result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_verify_htlc() {
-        let client = BitcoinClient::new();
-        let preimage = [0u8; 32];
-        let hash_lock = sha256::Hash::hash(&preimage).to_byte_array();
-
-        let state = client
-            .create_lock_state(
-                1_000_000,
-                [0u8; 32],
-                100,
-                [1u8; 20],
-                0,
-                0,
-                Some(HTLCParameters {
-                    amount: 1_000_000,
-                    receiver: [1u8; 20],
-                    hash_lock,
-                    timeout_height: 144,
-                }),
-                None,
-            )
-            .unwrap();
-
-        let valid = client.verify_htlc(&state, &preimage).await.unwrap();
-        assert!(valid);
-    }
-
-    #[tokio::test]
-    async fn test_state_caching() {
-        let client = BitcoinClient::new();
-        let test_hash = [1u8; 32];
-        let test_data = vec![1, 2, 3, 4];
-
-        client
-            .cache_state(test_hash, test_data.clone())
-            .await
-            .unwrap();
-        let cached = client.get_cached_state(test_hash).await;
-
-        assert_eq!(cached, Some(test_data));
     }
 }

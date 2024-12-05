@@ -26,7 +26,9 @@ export interface ChannelConfig {
   export async function initWasm() {
     if (!wasmModule) {
       const wasm = await import('@/pkg/overpass_wasm');
-      await wasm.default();
+      if (typeof wasm.init === 'function') {
+        await wasm.init();
+      }
       wasmModule = wasm;
     }
     return wasmModule;
@@ -49,7 +51,62 @@ export interface ChannelConfig {
     async finalize(): Promise<Uint8Array> {
       return await this.channel.finalize_state();
     }
-  
+  /// process
+  async processTransaction(nonce: bigint, data: Uint8Array): Promise<Result> {
+    return await this.channel.process_transaction(nonce, data);
+  }
+
+  async verifyProof(data: Uint8Array): Promise<boolean> {
+    return await this.channel.verify_proof(data);
+  }
+
+  async verifyFinalState(): Promise<Result> {
+    return await this.channel.verify_final_state();
+  }
+
+  async getCurrentState(): Promise<Uint8Array> {
+    return await this.channel.get_current_state();
+  }
+
+  async getProof(): Promise<Uint8Array> {
+    return await this.channel.get_proof();
+  }
+
+  async getFinalState(): Promise<Uint8Array> {
+    return await this.channel.get_final_state();
+  }
+
+  async getBalance(): Promise<bigint> {
+    return await this.channel.get_balance();
+  }
+
+  async getNonce(): Promise<bigint> {
+    return await this.channel.get_nonce();
+  }
+
+  async getChannelId(): Promise<Uint8Array> {
+    return await this.channel.get_channel_id();
+  }
+
+  async getChannelAddress(): Promise<string> {
+    return await this.channel.get_channel_address();
+  }
+
+  async getChannelAddressShort(): Promise<string> {
+    return await this.channel.get_channel_address_short();
+  }
+
+  async getChannelAddressLong(): Promise<string> {
+    return await this.channel.get_channel_address_long();
+  }
+
+  async getChannelAddressFull(): Promise<string> {
+    return await this.channel.get_channel_address_full();
+  }
+
+  async getChannelAddressShortWithAmount(amount: bigint): Promise<string> {
+    return await this.channel.get_channel_address_short_with_amount(amount);
+  }
     destroy() {
       if (this.channel) {
         this.channel.free();
@@ -72,3 +129,7 @@ export interface ChannelConfig {
   
     // ... rest of implementation
   }
+
+export function exit(arg0: number) {
+    throw new Error('Function not implemented.');
+}

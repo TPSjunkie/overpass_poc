@@ -1,12 +1,12 @@
-// bitcoin_client.rs
-
-use crate::bitcoin::bitcoin_types::{HTLCParameters, StealthAddress};
+use crate::bitcoin::bitcoin_types::{HTLCParameters};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
+use bitcoin::{Address, Script};
+use bitcoin::hashes::Hash;
 
-/// Represents a Bitcoin client managing state and operations.
 #[derive(Debug, Clone)]
 pub struct BitcoinClient {
     state_cache: Arc<RwLock<HashMap<[u8; 32], Vec<u8>>>>,
@@ -37,29 +37,36 @@ impl BitcoinClient {
     }
 
     /// Sends a transaction to the Bitcoin network.
-    pub fn send_transaction(&self, transaction: &BitcoinTransaction) -> Result<(), BitcoinClientError> {
-        // Implementation to send the transaction to the Bitcoin network.
-        // In production, this would involve communicating with a Bitcoin node via RPC.
-        // Here, we'll simulate the sending process.
-        println!("Transaction sent: {:?}", transaction);
+    pub fn send_transaction(
+        &self,
+        transaction: &BitcoinTransaction,
+    ) -> Result<(), BitcoinClientError> {
+        let tx_bytes = transaction.to_bytes();
+        self.cache_transaction(transaction.txid, tx_bytes.clone());
+
+        let rpc_url = "http://localhost:18443"; // Regtest RPC URL
+        let rpc_auth = Auth::UserPass("rpcuser".into(), "rpcpassword".into());
+        let client = Client::new(rpc_url, rpc_auth)
+            .map_err(|e| BitcoinClientError::RpcError(format!("RPC connection failed: {}", e)))?;
+
+        client
+            .send_raw_transaction(&tx_bytes)
+            .map_err(|e| BitcoinClientError::RpcError(format!("Failed to send transaction: {}", e)))?;
         Ok(())
     }
 
     /// Fetches the current balance for a given address.
-    pub fn get_balance(&self, address: &str) -> Result<u64, BitcoinClientError> {
-        // Implementation to fetch balance from the Bitcoin network.
-        // In production, this would involve querying a node or blockchain explorer API.
-        // Simulating with a fixed value.
-        println!("Fetching balance for address: {}", address);
-        Ok(100_000) // Simulated balance
-    }
+    pub fn get_balance(&self, address: &Address) -> Result<u64, BitcoinClientError> {
+        let rpc_url = "http://localhost:18443";
+        let rpc_auth = Auth::UserPass("rpcuser".into(), "rpcpassword".into());
+        let client = Client::new(rpc_url, rpc_auth)
+            .map_err(|e| BitcoinClientError::RpcError(format!("RPC connection failed: {}", e)))?;
 
-    /// Generates a new Bitcoin address.
-    pub fn generate_address(&self) -> Result<String, BitcoinClientError> {
-        // Implementation to generate a new Bitcoin address.
-        // This would involve key generation and address derivation.
-        // For simplicity, we'll return a placeholder address.
-        Ok("bc1qexampleaddress1234567890".to_string())
+        let unspent = client.list_unspent(None, None, Some(&[address]), None, None)
+            .map_err(|e| BitcoinClientError::RpcError(format!("Failed to fetch UTXOs: {}", e)))?;
+        let balance: u64 = unspent.iter().map(|utxo| utxo.amount.to_sat()).sum();
+
+        Ok(balance)
     }
 
     /// Locks funds in an HTLC.
@@ -70,11 +77,34 @@ impl BitcoinClient {
         hash_lock: [u8; 32],
         timeout_height: u32,
     ) -> Result<BitcoinTransaction, BitcoinClientError> {
-        let htlc_params = self.create_htlc_parameters(amount, receiver, hash_lock, timeout_height);
-        // Create a transaction that locks the funds in an HTLC.
-        // In production, construct the transaction according to Bitcoin's scripting language.
-        let tx = BitcoinTransaction::new([0u8; 32], 0, amount, vec![]);
-        println!("HTLC lock created with parameters: {:?}", htlc_params);
+        let rpc_url = "http://localhost:18443";
+        let rpc_auth = Auth::UserPass("rpcuser".into(), "rpcpassword".into());
+        let client = Client::new(rpc_url, rpc_auth)
+            .map_err(|e| BitcoinClientError::RpcError(format!("RPC connection failed: {}", e)))?;
+
+        let script = Script::builder()
+            .push_opcode(bitcoin::opcodes::all::OP_HASH256)
+            .push_slice(&hash_lock)
+            .push_opcode(bitcoin::opcodes::all::OP_EQUALVERIFY)
+            .push_slice(&receiver)
+            .push_opcode(bitcoin::opcodes::all::OP_CHECKSIG)
+            .into_script();
+
+        let unspent = client
+            .list_unspent(None, None, None, None, None)
+            .map_err(|e| BitcoinClientError::RpcError(format!("Failed to fetch UTXOs: {}", e)))?
+            .into_iter()
+            .find(|utxo| utxo.amount.to_sat() >= amount)
+            .ok_or(BitcoinClientError::InsufficientFunds)?;
+
+        let tx = BitcoinTransaction::new(
+            *unspent.txid.as_byte_array(),
+            unspent.vout,
+            amount,
+            script.into_bytes(),
+        );
+
+        self.cache_transaction(tx.txid, tx.to_bytes());
         Ok(tx)
     }
 
@@ -84,10 +114,22 @@ impl BitcoinClient {
         htlc_txid: [u8; 32],
         preimage: [u8; 32],
     ) -> Result<BitcoinTransaction, BitcoinClientError> {
-        // Create a transaction that redeems the HTLC using the preimage.
-        // In production, construct the transaction with the correct unlocking script.
-        let tx = BitcoinTransaction::new(htlc_txid, 0, 0, vec![]);
-        println!("HTLC redeemed with preimage: {:?}", preimage);
+        let htlc_tx_bytes = self.get_cached_transaction(&htlc_txid)
+            .ok_or(BitcoinClientError::TransactionNotFound)?;
+        let htlc_tx = BitcoinTransaction::from_bytes(&htlc_tx_bytes)?;
+
+        let unlocking_script = Script::builder()
+            .push_slice(&preimage)
+            .into_script();
+
+        let tx = BitcoinTransaction::new(
+            htlc_txid,
+            0,
+            htlc_tx.amount.saturating_sub(1000),
+            unlocking_script.into_bytes(),
+        );
+
+        self.cache_transaction(tx.txid, tx.to_bytes());
         Ok(tx)
     }
 
@@ -104,7 +146,6 @@ impl BitcoinClient {
     }
 }
 
-/// Represents a Bitcoin transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BitcoinTransaction {
     pub txid: [u8; 32],
@@ -126,86 +167,23 @@ impl BitcoinTransaction {
 
     /// Serializes the transaction to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
-        // Implement serialization according to Bitcoin's transaction format.
-        // For simplicity, we'll use serde_json here.
         serde_json::to_vec(self).unwrap()
     }
 
     /// Deserializes the transaction from bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, BitcoinClientError> {
-        serde_json::from_slice(bytes)
-            .map_err(|e| BitcoinClientError::SerializationError(e.to_string()))
-    }
-}
-
-/// Represents the state of a Bitcoin lock.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BitcoinLockState {
-    pub lock_amount: u64,
-    pub lock_script_hash: [u8; 32],
-    pub lock_height: u64,
-    pub pubkey_hash: [u8; 20],
-    pub sequence: u32,
-    pub nonce: u64,
-    pub htlc_params: Option<HTLCParameters>,
-    pub stealth_address: Option<StealthAddress>,
-}
-
-impl BitcoinLockState {
-    /// Creates a new Bitcoin lock state.
-    pub fn new(
-        lock_amount: u64,
-        lock_script_hash: [u8; 32],
-        lock_height: u64,
-        pubkey_hash: [u8; 20],
-        sequence: u32,
-        nonce: u64,
-        htlc_params: Option<HTLCParameters>,
-        stealth_address: Option<StealthAddress>,
-    ) -> Result<Self, BitcoinClientError> {
-        if let Some(params) = &htlc_params {
-            if lock_amount < params.amount {
-                return Err(BitcoinClientError::InvalidLockAmount(
-                    "Lock amount is less than HTLC requirement".to_string(),
-                ));
-            }
-        }
-        Ok(Self {
-            lock_amount,
-            lock_script_hash,
-            lock_height,
-            pubkey_hash,
-            sequence,
-            nonce,
-            htlc_params,
-            stealth_address,
-        })
-    }
-
-    /// Serializes the lock state to bytes.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        serde_json::to_vec(self).unwrap()
-    }
-
-    /// Deserializes the lock state from bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, BitcoinClientError> {
-        serde_json::from_slice(bytes)
-            .map_err(|e| BitcoinClientError::SerializationError(e.to_string()))
+        serde_json::from_slice(bytes).map_err(|e| BitcoinClientError::SerializationError(e.to_string()))
     }
 }
 
 #[derive(Error, Debug)]
 pub enum BitcoinClientError {
-    #[error("Invalid lock amount: {0}")]
-    InvalidLockAmount(String),
+    #[error("RPC error: {0}")]
+    RpcError(String),
     #[error("Serialization error: {0}")]
     SerializationError(String),
-    #[error("Network error: {0}")]
-    NetworkError(String),
-    #[error("Transaction error: {0}")]
-    TransactionError(String),
-    #[error("HTLC error: {0}")]
-    HTLCError(String),
-    #[error("Unknown error: {0}")]
-    UnknownError(String),
+    #[error("Transaction not found")]
+    TransactionNotFound,
+    #[error("Insufficient funds for the transaction")]
+    InsufficientFunds,
 }

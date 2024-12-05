@@ -1,6 +1,9 @@
 import { demonstrateWallet } from './wallet-demo';
 import { demonstratePaymentChannel } from './payment-channel-demo';
 import { demonstrateHTLC } from './htlc-demo';
+import * as process from '../wasm/index';
+
+
 
 async function runFullDemo() {
     console.log("🚀 Starting Overpass Demo");
@@ -22,4 +25,4 @@ async function runFullDemo() {
     }
 }
 
-runFullDemo().catch(console.error);
+runFullDemo();

@@ -6,7 +6,7 @@ export function ChannelTest() {
   const [status, setStatus] = useState('');
 
   const runTest = async () => {
-    await initialize();
+    await initialize({ network: 'testnet', initial_balance: 1000, security_bits: 256 });
     
     // Test transaction
     const testData = new Uint8Array([1, 2, 3, 4]);
