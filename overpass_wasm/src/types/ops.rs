@@ -59,6 +59,9 @@ pub enum OpCode {
     Wallet(WalletOpCode),
     Channel(ChannelOpCode),
     Custom(u8),
+    Transaction {
+        data: Vec<u8>,
+    },
 }
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +100,7 @@ impl OpCode {
             OpCode::Wallet(op) => u8::from(*op),
             OpCode::Channel(op) => u8::from(*op),
             OpCode::Custom(op) => *op,
+            OpCode::Transaction { .. } => 0xC0,
         }
     }
 
@@ -117,6 +121,7 @@ impl OpCode {
             }),
             0x04 => Some(OpCode::AddReference { from: 0, to: 0 }),
             0x05 => Some(OpCode::RemoveReference { from: 0, to: 0 }),
+            0xC0 => Some(OpCode::Transaction { data: Vec::new() }),
             _ => {
                 if let Ok(op) = IntermediateOpCode::try_from(value) {
                     return Some(OpCode::Intermediate(op));
@@ -155,6 +160,8 @@ pub enum ChannelOpCode {
     FinalizeState = 0xA2,
     DisputeState = 0xA3,
     InitChannel = 0xA4,
+    Update = 0xA5,
+    Finalize = 0xA6,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +173,7 @@ pub enum WalletOpCode {
     UpdateWalletState = 0x90,
     CreateTransaction = 0xC0,
     ProcessTransaction = 0xC2,
+    Create = 0x73,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,6 +237,8 @@ impl TryFrom<u8> for ChannelOpCode {
             0xA2 => Ok(Self::FinalizeState),
             0xA3 => Ok(Self::DisputeState),
             0xA4 => Ok(Self::InitChannel),
+            0xA5 => Ok(Self::Update),
+            0xA6 => Ok(Self::Finalize),
             _ => Err("Invalid Channel operation code"),
         }
     }
@@ -242,6 +252,7 @@ impl TryFrom<u8> for WalletOpCode {
             0x70 => Ok(Self::CreateChannel),
             0x71 => Ok(Self::UpdateChannel),
             0x72 => Ok(Self::CloseChannel),
+            0x73 => Ok(Self::Create),
             0x90 => Ok(Self::UpdateWalletState),
             0xC0 => Ok(Self::CreateTransaction),
             0xC2 => Ok(Self::ProcessTransaction),

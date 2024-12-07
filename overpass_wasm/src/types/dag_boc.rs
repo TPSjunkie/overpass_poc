@@ -1,206 +1,174 @@
-// src/common/types/dag_boc.rs
-
-use crate::error::client_errors::{SystemError, SystemErrorType};
-use crate::types::ops::OpCode;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
+use wasm_bindgen::prelude::*;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 
-/// DAG Cell
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DagCell {
-    pub balance: u64,
-    pub nonce: u64,
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct StateUpdate {
+    dag_cells: Vec<u8>,
+    references: Vec<u32>,
+    roots: Vec<u32>,
+    hash: Vec<u8>,
+    state_mapping: Vec<(u32, u32)>,
+    nonce: u64,
 }
 
-/// DAG BOC representation
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DAGBOC {
-    pub dag_cells: Vec<Vec<u8>>,
-    pub references: Vec<(u32, u32)>,
-    pub roots: Vec<Vec<u8>>,
-    pub hash: Option<[u8; 32]>,
-    pub state_mapping: HashMap<Vec<u8>, u32>,
-}
+impl StateUpdate {
+    /// Constructs a new `StateUpdate` with provided data and calculates its hash.
+    pub fn new(
+        dag_cells: Vec<u8>,
+        references: Vec<u32>,
+        roots: Vec<u32>,
+        state_mapping: Vec<u32>,
+        nonce: u64,
+    ) -> Self {
+        assert!(
+            state_mapping.len() % 2 == 0,
+            "State mapping must contain an even number of elements"
+        );
 
-impl DAGBOC {
-    /// Creates a new `DAGBOC`.
-    pub fn new() -> Self {
-        DAGBOC {
-            dag_cells: Vec::new(),
-            references: Vec::new(),
-            roots: Vec::new(),
-            hash: None,
-            state_mapping: HashMap::new(),
-        }
-    }
-    /// Get State
-    pub fn get_state_cells(&self) -> Vec<Vec<u8>> {
-        self.dag_cells.clone()
-    }
-    /// Adds a cell to the DAG BOC.
-    pub fn add_cell(&mut self, cell_data: Vec<u8>) -> Result<u32, SystemError> {
-        let id = self.dag_cells.len() as u32;
-        self.dag_cells.push(cell_data);
-        Ok(id)
-    }
+        // Map state_mapping to pairs of (u32, u32)
+        let state_mapping = state_mapping
+            .chunks(2)
+            .map(|chunk| (chunk[0], chunk[1]))
+            .collect();
 
-    /// Updates the state mapping.
-    pub fn update_state_mapping(&mut self, key: Vec<u8>, value: u32) -> Result<(), SystemError> {
-        self.state_mapping.insert(key, value);
-        Ok(())
-    }
+        // Initialize the StateUpdate
+        let mut update = StateUpdate {
+            dag_cells,
+            references,
+            roots,
+            hash: Vec::new(),
+            state_mapping,
+            nonce,
+        };
 
-    /// Processes an opcode to modify the DAG BOC.
-    pub fn process_op_code(&mut self, op_code: OpCode) -> Result<(), SystemError> {
-        match op_code {
-            OpCode::Add { cell } => {
-                self.add_cell(cell)?;
-            }
-            OpCode::SetCode {
-                code,
-                new_code,
-                new_data: _,
-                new_libraries: _,
-                new_version: _,
-            } => {
-                if let Some(index) = self.dag_cells.iter().position(|c| c == &code) {
-                    self.dag_cells[index] = new_code;
-                } else {
-                    return Err(SystemError::new(
-                        SystemErrorType::InvalidInput,
-                        "Code not found".to_string(),
-                    ));
-                }
-            }
-            OpCode::SetData { cell, new_data } => {
-                if let Some(index) = self.dag_cells.iter().position(|c| c == &cell) {
-                    self.dag_cells[index] = new_data;
-                } else {
-                    return Err(SystemError::new(
-                        SystemErrorType::InvalidInput,
-                        "Cell not found".to_string(),
-                    ));
-                }
-            }
-            OpCode::AddReference { from, to } => {
-                self.references.push((from, to));
-            }
-            OpCode::SetRoot { index } => {
-                if let Some(cell) = self.dag_cells.get(index as usize) {
-                    self.roots.push(cell.clone());
-                } else {
-                    return Err(SystemError::new(
-                        SystemErrorType::InvalidInput,
-                        "Index out of bounds".to_string(),
-                    ));
-                }
-            }
-            OpCode::Remove { cell } => {
-                if let Some(index) = self.dag_cells.iter().position(|c| c == &cell) {
-                    self.dag_cells.remove(index);
-                } else {
-                    return Err(SystemError::new(
-                        SystemErrorType::InvalidInput,
-                        "Cell not found".to_string(),
-                    ));
-                }
-            }
-            OpCode::RemoveReference { from, to } => {
-                if let Some(index) = self
-                    .references
-                    .iter()
-                    .position(|&(f, t)| f == from && t == to)
-                {
-                    self.references.remove(index);
-                } else {
-                    return Err(SystemError::new(
-                        SystemErrorType::InvalidInput,
-                        "Reference not found".to_string(),
-                    ));
-                }
-            }
-            _ => {
-                return Err(SystemError::new(
-                    SystemErrorType::InvalidInput,
-                    "Unsupported operation".to_string(),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    /// Serializes the DAG BOC to a byte vector.
-    pub fn serialize(&self) -> Result<Vec<u8>, SystemError> {
-        serde_json::to_vec(self)
-            .map_err(|e| SystemError::new(SystemErrorType::SerializationFailed, e.to_string()))
-    }
-
-    /// Deserializes the DAG BOC from a byte slice.
-    pub fn deserialize(data: &[u8]) -> Result<Self, SystemError> {
-        serde_json::from_slice(data)
-            .map_err(|e| SystemError::new(SystemErrorType::DeserializationFailed, e.to_string()))
-    }
-
-    /// Computes the hash of the DAG BOC.
-    pub fn compute_hash(&self) -> [u8; 32] {
+        // Compute the hash
         let mut hasher = Sha256::new();
+        hasher.update(&update.dag_cells);
+        update.roots.iter().for_each(|x| hasher.update(x.to_le_bytes()));
+        update.hash = hasher.finalize().to_vec();
 
-        for cell in &self.dag_cells {
-            hasher.update(cell);
-        }
-
-        for &(from, to) in &self.references {
-            hasher.update(&from.to_le_bytes());
-            hasher.update(&to.to_le_bytes());
-        }
-
-        for root in &self.roots {
-            hasher.update(root);
-        }
-
-        hasher.finalize().into()
+        update
     }
 
-    /// Sets the DAG cells.
-    pub fn with_dag_cells(mut self, dag_cells: Vec<Vec<u8>>) -> Self {
-        self.dag_cells = dag_cells;
-        self
+    pub fn dag_cells(&self) -> &[u8] {
+        &self.dag_cells
     }
 
-    /// Sets the references.
-    pub fn with_references(mut self, references: Vec<(u32, u32)>) -> Self {
-        self.references = references;
-        self
+    pub fn references(&self) -> &[u32] {
+        &self.references
     }
 
-    /// Sets the roots.
-    pub fn with_roots(mut self, roots: Vec<Vec<u8>>) -> Self {
-        self.roots = roots;
-        self
+    pub fn roots(&self) -> &[u32] {
+        &self.roots
+    }
+
+    pub fn hash(&self) -> &[u8] {
+        &self.hash
+    }
+
+    pub fn state_mapping(&self) -> &[(u32, u32)] {
+        &self.state_mapping
+    }
+
+    pub fn nonce(&self) -> u64 {
+        self.nonce
+    }
+
+    /// Verifies the integrity of the StateUpdate by recalculating its hash.
+    pub fn verify(&self) -> bool {
+        let mut hasher = Sha256::new();
+        hasher.update(&self.dag_cells);
+        self.roots.iter().for_each(|x| hasher.update(x.to_le_bytes()));
+        hasher.finalize().as_slice() == self.hash
     }
 }
 
-// crate::types::dag_boc.rs
-
-pub struct DagBOC {
-    // Fields representing the DAG
+#[wasm_bindgen]
+pub struct StateUpdateWrapper {
+    inner: StateUpdate,
 }
 
-impl DagBOC {
-    pub fn new() -> Self {
-        Self {
-            // Initialize DAG
+#[wasm_bindgen]
+impl StateUpdateWrapper {
+    /// Constructs a new `StateUpdateWrapper` and validates the input data.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        dag_cells: js_sys::Uint8Array,
+        references: js_sys::Uint32Array,
+        roots: js_sys::Uint32Array,
+        state_mapping: js_sys::Uint32Array,
+        nonce: u64,
+    ) -> Result<StateUpdateWrapper, JsValue> {
+        if roots.length() == 0 {
+            return Err(JsValue::from_str("Roots array cannot be empty"));
         }
+
+        if state_mapping.length() % 2 != 0 {
+            return Err(JsValue::from_str("State mapping must contain pairs of values"));
+        }
+
+        // Convert JS arrays to Rust vectors
+        let dag_cells = dag_cells.to_vec();
+        let references = references.to_vec();
+        let roots = roots.to_vec();
+        let state_mapping = state_mapping.to_vec();
+
+        // Construct and return the wrapper
+        Ok(StateUpdateWrapper {
+            inner: StateUpdate::new(dag_cells, references, roots, state_mapping, nonce),
+        })
     }
 
-    pub fn process_op_code(&mut self, _op_code: OpCode) -> Result<(), anyhow::Error> {
-        // Process operation code
-        Ok(())
+    #[wasm_bindgen(getter)]
+    pub fn dag_cells(&self) -> js_sys::Uint8Array {
+        js_sys::Uint8Array::from(&self.inner.dag_cells[..])
     }
 
-    pub fn get_state_cells(&self) -> Vec<u8> {
-        // Retrieve state cells
-        vec![] // Placeholder
+    #[wasm_bindgen(getter)]
+    pub fn references(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(&self.inner.references[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn roots(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(&self.inner.roots[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn hash(&self) -> js_sys::Uint8Array {
+        js_sys::Uint8Array::from(&self.inner.hash[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn nonce(&self) -> u64 {
+        self.inner.nonce
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn state_mapping(&self) -> js_sys::Array {
+        self.inner
+            .state_mapping
+            .iter()
+            .map(|(a, b)| {
+                let pair = js_sys::Array::new();
+                pair.push(&(*a).into());
+                pair.push(&(*b).into());
+                pair
+            })
+            .collect()
+    }
+
+    #[wasm_bindgen]
+    pub fn verify(&self) -> bool {
+        self.inner.verify()
+    }
+
+    pub(crate) fn get_inner(&self) -> &StateUpdate {
+        &self.inner
+    }
+
+    pub(crate) fn into_inner(self) -> StateUpdate {
+        self.inner
     }
 }

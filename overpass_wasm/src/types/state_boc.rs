@@ -39,6 +39,42 @@ pub struct Cell {
     pub(crate) balance: i32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct StateBOCCell {
+    pub cell_type: CellType,
+    pub data: Vec<u8>,
+    pub references: Vec<u32>,
+    pub slice: Option<Vec<u8>>,
+    pub nonce: u64,
+    pub balance: i32,
+}
+
+impl From<Cell> for StateBOCCell {
+    fn from(cell: Cell) -> Self {
+        StateBOCCell {
+            cell_type: cell.cell_type,
+            data: cell.data,
+            references: cell.references.into_iter().map(|x| x as u32).collect(),
+            slice: cell.slice.map(|s| vec![s.start as u8, s.end as u8]),
+            nonce: cell.nonce,
+            balance: cell.balance,
+        }
+    }
+}
+
+impl From<StateBOCCell> for Cell {
+    fn from(cell: StateBOCCell) -> Self {
+        Cell {
+            cell_type: cell.cell_type,
+            data: cell.data,
+            references: cell.references.into_iter().map(|x| x as u64).collect(),
+            slice: cell.slice.map(|s| Slice { start: s[0] as u64, end: s[1] as u64 }),
+            nonce: cell.nonce,
+            balance: cell.balance,
+        }
+    }
+}
+
 /// State BOC (Bag of Cells)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StateBOC {
