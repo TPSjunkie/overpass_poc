@@ -1,4 +1,4 @@
-import { init} from '../pkg/overpass_wasm';
+import { init} from '../wasm/overpass_wasm';
 import { HTLCWrapper } from '../wrappers/htlc';
 
 async function demoHTLC() {

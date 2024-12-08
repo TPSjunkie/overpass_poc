@@ -1,5 +1,8 @@
 // src/wasm/index.ts - Main WASM exports and types
-// src/wasm/index.ts
+// import * as wasm from "./overpass_wasm.js";
+// Removed unused import
+// import * as wasm from "./overpass_wasm.d";
+
 export * from './types';
 export * from './bridge';
 export interface ChannelConfig {
@@ -25,16 +28,25 @@ export interface ChannelConfig {
   
   export async function initWasm() {
     if (!wasmModule) {
-      const wasm = await import('@/pkg/overpass_wasm');
+      // Changed import path to match the correct file location
+      const wasm = await import('./overpass_wasm.js');
       if (typeof wasm.init === 'function') {
         await wasm.init();
       }
       wasmModule = wasm;
     }
     return wasmModule;
-  }
-  
+  }  
   export class Channel {
+      finalize_state(): Uint8Array | PromiseLike<Uint8Array> {
+          throw new Error('Method not implemented.');
+      }
+      verify_state(state: Uint8Array): boolean | PromiseLike<boolean> {
+          throw new Error('Method not implemented.');
+      }
+      free() {
+          throw new Error('Method not implemented.');
+      }
     private channel: any;
   
     constructor(config: ChannelConfig) {
@@ -130,6 +142,6 @@ export interface ChannelConfig {
     // ... rest of implementation
   }
 
-export function exit(arg0: number) {
+export function exit(code: number): never {
     throw new Error('Function not implemented.');
 }

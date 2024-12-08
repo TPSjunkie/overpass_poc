@@ -1,4 +1,4 @@
-import { useChannel } from '../hooks/useChannel';
+import { useChannel } from '../../hooks/useChannel';
 import { useState } from 'react';
 
 export function ChannelTest() {

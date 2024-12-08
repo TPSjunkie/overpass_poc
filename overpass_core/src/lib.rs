@@ -2,10 +2,9 @@
 
 
 pub mod bitcoin;
-pub mod smt;
-pub mod circuit;
+
 pub mod rng;
-pub mod state;
+
 pub mod logging;
 pub mod error;
 pub mod types;

@@ -1,8 +1,8 @@
 // File: frontend/src/components/ChannelManager.tsx
 
 import { FormEvent, useState } from 'react';
-import { useChannel } from '../hooks/useChannel';
-import { StateUpdate } from '../types';
+import { useChannel } from '../../hooks/useChannel';
+import { StateUpdate } from '../../types';
 
 export function ChannelManager() {
     const { channelManager: channel } = useChannel();

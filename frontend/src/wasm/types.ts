@@ -83,18 +83,19 @@ export interface ChannelConfig {
   
   // Module loading and caching
   let wasmModule: WasmModule | null = null;
-  
-  export async function initWasm(): Promise<void> {
-    if (!wasmModule) {
-      const wasm = await import('../pkg/overpass_wasm');
-      await wasm.default();
-      wasmModule = {
-        ...wasm,
-        memory: new WebAssembly.Memory({ initial: 256, maximum: 256 })
-      };
-      wasmModule.start();
-    }
+export async function initWasm(): Promise<void> {
+  if (!wasmModule) {
+    const wasm = await import('./overpass_wasm.js');
+    await wasm.default();
+    wasmModule = {
+      ...wasm,
+      Channel: wasm.ChannelWrapper,
+      start: () => {},
+      memory: new WebAssembly.Memory({ initial: 256, maximum: 256 })
+    };
+    wasmModule.start();
   }
+}
   
   export function getWasmModule(): WasmModule {
     if (!wasmModule) {
@@ -134,7 +135,6 @@ export class CellBuilder {
         this.cells = new Map();
         this.size = 0;
     }
-
     // Adds a cell to the builder.
     public addCell(cell: Cell): Result {
         const cellId = cell.nonce;

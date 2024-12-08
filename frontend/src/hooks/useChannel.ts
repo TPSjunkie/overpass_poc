@@ -1,7 +1,8 @@
 // src// File: frontend/src/hooks/useChannel.ts
 
 import { useState, useCallback } from 'react';
-import { init, Channel } from '@/pkg/overpass_wasm';
+import { init } from '../wasm/overpass_wasm';
+import Channel, { InitInput } from '../wasm/overpass_wasm';
 
 interface ChannelConfig {
     network: 'mainnet' | 'testnet' | 'regtest';
@@ -24,16 +25,16 @@ interface TransactionResult {
 }
 
 export class ChannelManager {
-  private channel: Channel | null = null;
+  private channel: any | null = null;
   private initialized = false;
 
-  async initialize(p0: { network: string; initial_balance: number; security_bits: number; }) {
+  async initialize(params: { network: string; initial_balance: number; security_bits: number; }) {
     if (!this.initialized) {
       await init();
       const config: ChannelConfig = {
-          network: 'regtest',
-          initial_balance: BigInt(1000),
-          security_bits: 256,
+          network: params.network as 'mainnet' | 'testnet' | 'regtest',
+          initial_balance: BigInt(params.initial_balance),
+          security_bits: params.security_bits,
           version: '0.1.0'
       };
     
@@ -41,7 +42,7 @@ export class ChannelManager {
           typeof value === 'bigint' ? value.toString() : value
       );
     
-      this.channel = new Channel(configString);
+      this.channel = new (Channel as any)(configString);
       this.initialized = true;
       return { size: await this.getStateSize() };
     }

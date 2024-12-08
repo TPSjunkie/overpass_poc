@@ -6,7 +6,7 @@ let wasmInstance: WasmModule | null = null;
 export async function initWasm(): Promise<WasmModule> {
   if (!wasmInstance) {
     try {
-      const wasm = await import('@/pkg/overpass_wasm');
+      const wasm = await import('./overpass_wasm_bg.wasm');
       if (typeof wasm.init === 'function') {
         await wasm.init();
       }

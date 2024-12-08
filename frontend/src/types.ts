@@ -5,6 +5,11 @@ export interface ChannelConfig {
   }
   
   export interface ChannelState extends ChannelConfig {
+    get_current_state(): Uint8Array | PromiseLike<Uint8Array>;
+    update_state(amount: bigint, data: Uint8Array): unknown;
+    finalize_state(): Uint8Array | PromiseLike<Uint8Array>;
+    verify_state(state: Uint8Array): boolean | PromiseLike<boolean>;
+    free(): unknown;
     balances: number[];
     nonce: number;
   }
@@ -31,6 +36,8 @@ export interface Transaction {
 }
 
 export interface StateUpdate {
+  merkle_root(merkle_root: any): unknown;
+  size: any;
   transaction: Transaction;
   new_state: ChannelState;
 }

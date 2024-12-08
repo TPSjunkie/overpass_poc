@@ -1,7 +1,7 @@
 // File: frontend/src/hooks/useStorage.ts
 
 import { useEffect, useState } from 'react';
-import { init } from '@/pkg/overpass_wasm';
+import { init } from '../wasm/overpass_wasm';
 
 // TODO: Fix type
 

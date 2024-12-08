@@ -1,9 +1,6 @@
 // src/lib/channel.ts
 
-
-import { Channel } from "@/pkg/overpass_wasm";
-import { init } from "@/pkg/overpass_wasm";
-// src/lib/channel.ts
+import Channel from "../wasm/overpass_wasm";
 import { initWasm } from '@/wasm';
 
 export class channel {
@@ -39,19 +36,19 @@ export class channel {
 }
 
 export class ChannelManager {
-  generateProof(arg0: bigint) {
+  generateProof(_: bigint) {
       throw new Error('Method not implemented.');
   }
-  verifyProof(arg0: bigint) {
+  verifyProof(_: bigint) {
       throw new Error('Method not implemented.');
   }
-  processTransaction(arg0: bigint, data: Uint8Array) {
+  processTransaction(_: bigint, _data: Uint8Array) {
       throw new Error('Method not implemented.');
   }
   verifyFinalState() {
       throw new Error('Method not implemented.');
   }
-  private channel: Channel | null = null;
+  private channel: any = null;
   private initialized = false;
 
   public async initialize(config: {
@@ -60,9 +57,9 @@ export class ChannelManager {
     security_bits: number;
   }): Promise<void> {
     if (!this.initialized) {
-      await init();
+      const wasm = await initWasm();
       const configStr = JSON.stringify(config);
-      this.channel = new Channel(configStr);
+      this.channel = new wasm.Channel(configStr);
       this.initialized = true;
     }
   }
@@ -71,7 +68,7 @@ export class ChannelManager {
     
     const encoder = new TextEncoder();
     const entropy = encoder.encode(passphrase);
-    return await this.channel.create_wallet(entropy);
+    return await this.channel.createWallet(entropy);
   }
 
   public async updateState(amount: bigint, data: Uint8Array): Promise<any> {
@@ -103,19 +100,6 @@ export class ChannelManager {
   }
 }
 
-// Usage example (should be in a separate file)
-// const manager = new ChannelManager();
-// await manager.initialize({
-//   network: 'regtest',
-//   initial_balance: 1000,
-//   security_bits: 256
-// });
-
-// const metrics = manager.runPerformanceTest(100);
-// console.log('Performance metrics:', metrics);
-
-// // Clean up when done
-// manager.destroy();
 
 // src/lib/wallet.ts
 export class WalletManager {
