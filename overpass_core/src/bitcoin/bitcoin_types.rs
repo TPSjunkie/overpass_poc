@@ -74,7 +74,7 @@ impl HTLCParameters {
         }
     }
 
-    pub fn verify_timelock(&self, current_height: u32) -> bool {
+    pub fn check_timelock(&self, current_height: u32) -> bool {
         current_height >= self.timeout_height
     }
 
@@ -202,7 +202,7 @@ impl BitcoinLockState {
         }
 
         if let Some(htlc) = &self.htlc_params {
-            if !htlc.verify_timelock(next_state.lock_height as u32) {
+            if let Some(next_htlc) = &next_state.htlc_params {
                 return Ok(false);
             }
         }
@@ -226,5 +226,4 @@ impl BitcoinLockState {
         );
 
         Ok(true)
-    }
-}
+    }}
