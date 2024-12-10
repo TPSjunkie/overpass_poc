@@ -1,0 +1,5 @@
+[INFO] Test log message
+[INFO] Test log message
+[INFO] Test log message
+[INFO] Test log message
+[INFO] Test log message

@@ -14,12 +14,12 @@ impl OverpassDB {
     /// 
     /// * `path` - Path to the database directory.
     /// 
-    /// # Panics
+    /// # Returns
     /// 
-    /// Will panic if the database cannot be opened.
-    pub fn new(path: &str) -> Self {
-        let db = sled::open(path).expect("Failed to open database");
-        Self { db }
+    /// Result containing the OverpassDB instance or an error if the database cannot be opened.
+    pub fn new(path: &str) -> Result<Self> {
+        let db = sled::open(path).context("Failed to open database")?;
+        Ok(Self { db })
     }
 
     /// Retrieves a value from the database by key.
@@ -105,51 +105,93 @@ impl OverpassDB {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
 
     const TEST_DB_PATH: &str = "./test_db";
 
-    fn setup_db() -> OverpassDB {
+    fn setup_db() -> Result<OverpassDB> {
         // Ensure a clean state for tests
-        let _ = std::fs::remove_dir_all(TEST_DB_PATH);
+        if Path::new(TEST_DB_PATH).exists() {
+            fs::remove_dir_all(TEST_DB_PATH).expect("Failed to clean up test database directory");
+        }
         OverpassDB::new(TEST_DB_PATH)
     }
 
-    #[test]
-    fn test_put_get_delete() {
-        let db = setup_db();
-
-        // Test put
-        db.put(b"key1", b"value1").unwrap();
-        db.put(b"key2", b"value2").unwrap();
-
-        // Test get
-        assert_eq!(db.get(b"key1").unwrap(), Some(b"value1".to_vec()));
-        assert_eq!(db.get(b"key2").unwrap(), Some(b"value2".to_vec()));
-        assert!(db.get(b"key3").unwrap().is_none());
-
-        // Test delete
-        assert_eq!(db.delete(b"key1").unwrap(), Some(b"value1".to_vec()));
-        assert!(db.get(b"key1").unwrap().is_none());
+    fn teardown_db() {
+        if Path::new(TEST_DB_PATH).exists() {
+            fs::remove_dir_all(TEST_DB_PATH).expect("Failed to clean up test database directory");
+        }
     }
 
     #[test]
-    fn test_scan() {
-        let db = setup_db();
+    fn test_put_get_delete() -> Result<()> {
+        let db = setup_db()?;
 
-        db.put(b"key1", b"value1").unwrap();
-        db.put(b"key2", b"value2").unwrap();
-        db.put(b"key3", b"value3").unwrap();
+        // Test put operation with error handling
+        db.put(b"key1", b"value1")?;
+        db.put(b"key2", b"value2")?;
 
-        let scanned = db.scan(b"key1", b"key3").unwrap();
+        // Test get operation with error handling and value verification
+        let get_result1 = db.get(b"key1")?;
+        let get_result2 = db.get(b"key2")?;
+        let get_result3 = db.get(b"key3")?;
+
+        assert_eq!(get_result1, Some(b"value1".to_vec()), "Incorrect value for key1");
+        assert_eq!(get_result2, Some(b"value2".to_vec()), "Incorrect value for key2");
+        assert_eq!(get_result3, None, "Non-existent key should return None");
+
+        // Test delete operation with error handling and value verification
+        let delete_result = db.delete(b"key1")?;
+        assert_eq!(delete_result, Some(b"value1".to_vec()), "Incorrect deleted value");
+
+        // Verify deletion
+        let get_after_delete = db.get(b"key1")?;
+        assert_eq!(get_after_delete, None, "Key should not exist after deletion");
+
+        // Test overwriting existing key
+        db.put(b"key2", b"new_value2")?;
+        let updated_value = db.get(b"key2")?;
+        assert_eq!(updated_value, Some(b"new_value2".to_vec()), "Value not updated correctly");
+
+        teardown_db();
+        Ok(())
+    }
+
+    #[test]
+    fn test_scan() -> Result<()> {
+        let db = setup_db()?;
+
+        // Insert test data
+        db.put(b"key1", b"value1")?;
+        db.put(b"key2", b"value2")?;
+        db.put(b"key3", b"value3")?;
+
+        // Test scanning range
+        let scanned = db.scan(b"key1", b"key3")?;
         assert_eq!(scanned.len(), 2);
         assert_eq!(scanned[0], (b"key1".to_vec(), b"value1".to_vec()));
         assert_eq!(scanned[1], (b"key2".to_vec(), b"value2".to_vec()));
+
+        teardown_db();
+        Ok(())
     }
 
     #[test]
-    fn test_flush() {
-        let db = setup_db();
-        db.put(b"key", b"value").unwrap();
-        db.flush().unwrap();
+    fn test_flush() -> Result<()> {
+        let db = setup_db()?;
+        
+        // Insert some data
+        db.put(b"key", b"value")?;
+        
+        // Flush changes to disk
+        db.flush()?;
+        
+        // Verify data persists
+        let value = db.get(b"key")?;
+        assert_eq!(value, Some(b"value".to_vec()));
+
+        teardown_db();
+        Ok(())
     }
 }

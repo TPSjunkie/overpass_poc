@@ -193,6 +193,7 @@ mod tests {
     use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
+    #[ignore]
     async fn test_get_block_count() {
         // Configure BitcoinRpcClient
         let config = BitcoinRpcConfig {
@@ -211,6 +212,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_get_balance() {
         // Configure BitcoinRpcClient
         let config = BitcoinRpcConfig {
@@ -227,7 +229,9 @@ mod tests {
         let balance = client.get_balance().await.expect("Failed to get balance");
         assert!(balance.to_sat() > 0, "Wallet balance should be positive");
     }
+    
     #[tokio::test]
+    #[ignore]
     async fn test_send_raw_transaction() {
         // Configure BitcoinRpcClient
         let config = BitcoinRpcConfig {

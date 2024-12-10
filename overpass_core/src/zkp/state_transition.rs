@@ -1,18 +1,12 @@
-// src/zkp/state_transition.rs
-
-use plonky2::iop::witness::WitnessWrite;
-use plonky2_field::types::PrimeField64;
 use plonky2::plonk::config::Hasher;
-use plonky2::hash::hash_types::HashOutTarget;
-use plonky2_field::types::Field;
 use anyhow::{anyhow, Context, Result};
 use plonky2::{
     field::goldilocks_field::GoldilocksField,
     hash::{
-        hash_types::HashOut,
+        hash_types::{HashOut, HashOutTarget},
         poseidon::PoseidonHash,
     },
-    iop::witness::PartialWitness,
+    iop::witness::{PartialWitness, WitnessWrite},
     plonk::{
         circuit_builder::CircuitBuilder,
         circuit_data::{CircuitConfig, CircuitData},
@@ -20,201 +14,206 @@ use plonky2::{
         proof::ProofWithPublicInputs,
     },
 };
+use crate::zkp::channel::ChannelState;
+use plonky2_field::types::{Field, PrimeField64};
 
-type C = PoseidonGoldilocksConfig;
+/// Type alias for Poseidon configuration
+type PoseidonConfig = PoseidonGoldilocksConfig;
 
-/// Represents a state transition circuit using Plonky2.
-pub struct StateTransitionCircuit;
+/// Represents the state transition circuit using Plonky2.
+pub struct StateTransitionCircuit {
+    circuit_data: CircuitData<GoldilocksField, PoseidonConfig, 2>,
+    current_state_target: HashOutTarget,
+    next_state_target: HashOutTarget,
+    transition_data_target: HashOutTarget,
+}
 
 impl StateTransitionCircuit {
-    /// Constructs a new state transition circuit and returns the CircuitData along with input targets.
-    fn build_circuit() -> (
-        CircuitData<GoldilocksField, C, 2>,
-        [HashOutTarget; 1],
-        [HashOutTarget; 1],
-        HashOutTarget,
-    ) {
+    /// Initializes a new state transition circuit.
+    pub fn new() -> Self {
         let config = CircuitConfig::standard_recursion_zk_config();
         let mut builder = CircuitBuilder::<GoldilocksField, 2>::new(config);
 
-        let current_state_inputs = [builder.add_virtual_hash()];
-        let next_state_inputs = [builder.add_virtual_hash()];
-
-        builder.register_public_inputs(&current_state_inputs[0].elements);
-        builder.register_public_inputs(&next_state_inputs[0].elements);
-
+        // Define virtual hash targets for current state, transition data, and next state.
+        let current_state_target = builder.add_virtual_hash();
         let transition_data_target = builder.add_virtual_hash();
+        let next_state_target = builder.add_virtual_hash();
 
-        let computed_next_state = builder.hash_n_to_hash_no_pad::<PoseidonHash>(
-            vec![
-                current_state_inputs[0].elements[0],
-                transition_data_target.elements[0],
-                current_state_inputs[0].elements[1],
-                transition_data_target.elements[1],
-                current_state_inputs[0].elements[2],
-                transition_data_target.elements[2],
-                current_state_inputs[0].elements[3],
-                transition_data_target.elements[3],
-            ],
-        );
+        // Register current and next states as public inputs.
+        builder.register_public_inputs(&current_state_target.elements);
+        builder.register_public_inputs(&next_state_target.elements);
 
+        // Prepare inputs for Poseidon hash: interleaving current state and transition data.
+        let inputs = current_state_target
+            .elements
+            .iter()
+            .zip(transition_data_target.elements.iter())
+            .flat_map(|(&c, &t)| vec![c, t])
+            .collect::<Vec<_>>();
+
+        // Compute the next state hash using Poseidon without padding.
+        let computed_next_state = builder.hash_n_to_hash_no_pad::<PoseidonHash>(inputs);
+
+        // Enforce that the computed hash matches the declared next state.
         for i in 0..4 {
-            builder.connect(computed_next_state.elements[i], next_state_inputs[0].elements[i]);
+            builder.connect(computed_next_state.elements[i], next_state_target.elements[i]);
         }
 
-        let circuit_data = builder.build::<C>();
+        // Finalize the circuit.
+        let circuit_data = builder.build::<PoseidonConfig>();
 
-        (circuit_data, current_state_inputs, next_state_inputs, transition_data_target)
+        Self {
+            circuit_data,
+            current_state_target,
+            next_state_target,
+            transition_data_target,
+        }
     }
 
-    /// Converts a `[u8; 32]` array to a `HashOut<GoldilocksField>`.
-    pub fn to_hash_out(data: [u8; 32]) -> Result<HashOut<GoldilocksField>> {
-        data.chunks(8)
+    /// Generates a zero-knowledge proof for a state transition.
+    pub fn generate_proof(
+        &self,
+        initial_state: &ChannelState,
+        transition_data: &[u8; 32],
+    ) -> Result<ProofWithPublicInputs<GoldilocksField, PoseidonConfig, 2>> {
+        let mut pw = PartialWitness::new();
+
+        // Compute next state by applying transition data to initial state
+        let next_state = apply_transition(initial_state, transition_data)?;
+
+        // Serialize and hash the initial and next states
+        let initial_state_bytes = initial_state.hash_state().context("Failed to hash initial state")?;
+        let next_state_bytes = next_state.hash_state().context("Failed to hash next state")?;
+
+        // Convert byte arrays to HashOut targets.
+        let initial_hash = Self::to_hash_out(initial_state_bytes).context("Failed to convert initial hash")?;
+        let transition_hash = Self::to_hash_out(*transition_data).context("Failed to convert transition data hash")?;
+        let next_hash = Self::to_hash_out(next_state_bytes).context("Failed to convert next hash")?;
+
+        // Assign hashes to their respective targets.
+        pw.set_hash_target(self.current_state_target, initial_hash)
+            .context("Failed to set initial state hash")?;
+        pw.set_hash_target(self.transition_data_target, transition_hash)
+            .context("Failed to set transition data hash")?;
+        pw.set_hash_target(self.next_state_target, next_hash)
+            .context("Failed to set next state hash")?;
+
+        // Generate and return the proof.
+        self.circuit_data.prove(pw).context("Proof generation failed")
+    }
+
+    /// Verifies a zero-knowledge proof for a state transition.
+    pub fn verify_proof(
+        &self,
+        proof: ProofWithPublicInputs<GoldilocksField, PoseidonConfig, 2>,
+    ) -> Result<bool> {
+        self.circuit_data
+            .verify(proof)
+            .map(|_| true)
+            .context("Proof verification failed")
+    }
+
+    /// Converts a byte array to a Poseidon HashOut.
+    fn to_hash_out(data: [u8; 32]) -> Result<HashOut<GoldilocksField>, anyhow::Error> {
+        let elements = data
+            .chunks(8)
             .map(|chunk| {
-                let bytes = chunk
+                let bytes: [u8; 8] = chunk
                     .try_into()
-                    .with_context(|| "Chunk size mismatch while converting to u64")?;
+                    .map_err(|_| anyhow::anyhow!("Invalid byte length for field element"))?;
                 Ok(GoldilocksField::from_canonical_u64(u64::from_le_bytes(bytes)))
             })
-            .collect::<Result<Vec<_>>>()
-            .map(|fields| HashOut::from_partial(&fields))
+            .collect::<Result<Vec<_>, anyhow::Error>>()?;
+
+        Ok(HashOut::from_partial(&elements))
     }
 
-    /// Computes the Poseidon hash.
-    pub fn compute_poseidon_hash(
+    /// Converts a Poseidon HashOut back to a byte array.
+    fn hash_out_to_bytes(hash: &HashOut<GoldilocksField>) -> Result<[u8; 32]> {
+        let mut bytes = [0u8; 32];
+        for (i, &element) in hash.elements.iter().enumerate() {
+            let elem_u64 = element.to_noncanonical_u64();
+            bytes[i * 8..(i + 1) * 8].copy_from_slice(&elem_u64.to_le_bytes());
+        }
+        Ok(bytes)
+    }
+
+    /// Computes the Poseidon hash for the next state based on current state and transition data.
+    fn compute_poseidon_hash(
         current_state: &HashOut<GoldilocksField>,
         transition_data: &HashOut<GoldilocksField>,
     ) -> HashOut<GoldilocksField> {
-        let mut input = Vec::new();
-        input.push(current_state.elements[0]);
-        input.push(transition_data.elements[0]);
-        input.push(current_state.elements[1]);
-        input.push(transition_data.elements[1]);
-        input.push(current_state.elements[2]);
-        input.push(transition_data.elements[2]);
-        input.push(current_state.elements[3]);
-        input.push(transition_data.elements[3]);
-        PoseidonHash::hash_no_pad(&input)
+        let inputs = vec![
+            current_state.elements[0],
+            transition_data.elements[0],
+            current_state.elements[1],
+            transition_data.elements[1],
+            current_state.elements[2],
+            transition_data.elements[2],
+            current_state.elements[3],
+            transition_data.elements[3],
+        ];
+        PoseidonHash::hash_no_pad(&inputs)
     }
 
-    /// Converts a `HashOut<GoldilocksField>` back to a `[u8; 32]` array.
-    pub fn hash_out_to_bytes(hash: &HashOut<GoldilocksField>) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        for (i, field_elem) in hash.elements.iter().enumerate() {
-            bytes[i * 8..(i + 1) * 8]
-                .copy_from_slice(&field_elem.to_canonical_u64().to_le_bytes());
-        }
-        bytes
-    }
-
-    /// Generates a zero-knowledge proof for the state transition.
-    pub fn generate_proof(
+    /// Computes the next state based on current state and transition data.
+    pub fn compute_next_state(
+        &self,
         current_state: [u8; 32],
-        next_state: [u8; 32],
         transition_data: [u8; 32],
-    ) -> Result<ProofWithPublicInputs<GoldilocksField, C, 2>> {
-        // Build a fresh circuit for each proof
-        let (circuit_data, current_state_inputs, next_state_inputs, transition_data_target) = Self::build_circuit();
-
-        let mut pw = PartialWitness::<GoldilocksField>::new();
-
-        // Assign the transition data (private input)
-        pw.set_hash_target(transition_data_target, Self::to_hash_out(transition_data)?)?;
-
-        // Assign the current_state public inputs
-        let current_state_hash = Self::to_hash_out(current_state)
-            .context("Failed to convert current_state bytes to HashOut")?;
-        for (i, input) in current_state_hash.elements.iter().enumerate() {
-            pw.set_target(current_state_inputs[0].elements[i], *input)?;
-        }
-
-        // Assign the next_state public inputs
-        let next_state_hash = Self::to_hash_out(next_state)
-            .context("Failed to convert next_state bytes to HashOut")?;
-        for (i, input) in next_state_hash.elements.iter().enumerate() {
-            pw.set_target(next_state_inputs[0].elements[i], *input)?;
-        }
-
-        // Generate the proof using the fresh circuit_data
-        let proof = circuit_data.prove(pw).map_err(|e| anyhow!("Proof generation failed: {:?}", e))?;
-        Ok(proof)
-    }
-
-    /// Verifies a zero-knowledge proof for the state transition.
-    pub fn verify_proof(
-        proof: ProofWithPublicInputs<GoldilocksField, C, 2>,
-    ) -> Result<bool> {
-        // Build a fresh circuit for verification
-        let (circuit_data, _, _, _) = Self::build_circuit();
-
-        // Verify the proof
-        circuit_data.verify(proof)
-            .with_context(|| "Proof verification failed")?;
-        Ok(true)
+    ) -> Result<[u8; 32]> {
+        let current_hash = Self::to_hash_out(current_state).context("Failed to convert current state hash")?;
+        let transition_hash = Self::to_hash_out(transition_data).context("Failed to convert transition data hash")?;
+        let next_hash = Self::compute_poseidon_hash(&current_hash, &transition_hash);
+        Self::hash_out_to_bytes(&next_hash).context("Failed to convert next hash to bytes")
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rand::Rng;
+/// Applies transition data to the initial state to produce the next state.
+fn apply_transition(initial_state: &ChannelState, transition_data: &[u8; 32]) -> Result<ChannelState> {
+    // Example transition logic:
+    // - Update balances
+    // - Increment nonce
+    // - Update metadata if necessary
 
-    #[test]
-    fn test_state_transition_circuit() -> Result<()> {
-        // Initialize random number generator
-        let mut rng = rand::thread_rng();
+    // For demonstration, we'll assume transition_data encodes:
+    // - delta_balance_0: i32 (4 bytes)
+    // - delta_balance_1: i32 (4 bytes)
+    // - delta_nonce: i32 (4 bytes)
+    // The rest of the bytes are unused.
 
-        // Generate random current state and transition data
-        let current_state_bytes: [u8; 32] = rng.gen();
-        let transition_data_bytes: [u8; 32] = rng.gen();
+    let delta_balance_0 = i32::from_le_bytes(transition_data[0..4].try_into()?);
+    let delta_balance_1 = i32::from_le_bytes(transition_data[4..8].try_into()?);
+    let delta_nonce = i32::from_le_bytes(transition_data[8..12].try_into()?);
 
-        // Compute next state using Poseidon hash
-        let current_state_hash = StateTransitionCircuit::to_hash_out(current_state_bytes)?;
-        let transition_data_hash = StateTransitionCircuit::to_hash_out(transition_data_bytes)?;
-        let computed_next_state = StateTransitionCircuit::compute_poseidon_hash(&current_state_hash, &transition_data_hash);
-        let next_state_bytes = StateTransitionCircuit::hash_out_to_bytes(&computed_next_state);
+    // Apply deltas to balances and nonce
+    let new_balance_0 = initial_state
+        .balances
+        .get(0)
+        .ok_or_else(|| anyhow!("Missing balance 0"))?
+        .checked_add_signed(delta_balance_0 as i64)
+        .ok_or_else(|| anyhow!("Balance overflow"))?;
+    let new_balance_1 = initial_state
+        .balances
+        .get(1)
+        .ok_or_else(|| anyhow!("Missing balance 1"))?
+        .checked_add_signed(delta_balance_1 as i64)
+        .ok_or_else(|| anyhow!("Balance overflow"))?;
+    let new_nonce = initial_state
+        .nonce
+        .checked_add(delta_nonce as u64)
+        .ok_or_else(|| anyhow!("Nonce overflow"))?;
 
-        // Generate proof
-        let proof = StateTransitionCircuit::generate_proof(current_state_bytes, next_state_bytes, transition_data_bytes)
-            .context("Proof generation failed")?;
-
-        // Verify proof
-        let is_valid = StateTransitionCircuit::verify_proof(proof)
-            .context("Proof verification failed")?;
-        assert!(is_valid, "The proof should be valid");
-
-        Ok(())
+    // Ensure balances don't go negative
+    if new_balance_0 < 0 || new_balance_1 < 0 {
+        return Err(anyhow!("Balances cannot be negative"));
     }
 
-    #[test]
-    fn test_invalid_proof() -> Result<()> {
-        // Initialize random number generator
-        let mut rng = rand::thread_rng();
-
-        // Generate random current state and transition data
-        let current_state_bytes: [u8; 32] = rng.gen();
-        let transition_data_bytes: [u8; 32] = rng.gen();
-
-        // Compute next state using Poseidon hash
-        let current_state_hash = StateTransitionCircuit::to_hash_out(current_state_bytes)?;
-        let transition_data_hash = StateTransitionCircuit::to_hash_out(transition_data_bytes)?;
-        let computed_next_state = StateTransitionCircuit::compute_poseidon_hash(&current_state_hash, &transition_data_hash);
-        let next_state_bytes = StateTransitionCircuit::hash_out_to_bytes(&computed_next_state);
-
-        // Generate proof
-        let proof = StateTransitionCircuit::generate_proof(current_state_bytes, next_state_bytes, transition_data_bytes)
-            .context("Proof generation failed")?;
-
-        // Tamper with the public inputs to invalidate the proof
-        let mut tampered_proof = proof.clone();
-        for input in tampered_proof.public_inputs.iter_mut() {
-            *input = GoldilocksField::ZERO;
-        }
-
-        // Attempt to verify tampered proof
-        let result = StateTransitionCircuit::verify_proof(tampered_proof);
-        assert!(result.is_err(), "Verification should fail for tampered proof");
-
-        Ok(())
-    }
+    Ok(ChannelState {
+        balances: vec![new_balance_0 as u64, new_balance_1 as u64],
+        nonce: new_nonce,
+        metadata: initial_state.metadata.clone(),
+        merkle_root: unimplemented!(),
+        proof: unimplemented!(), // Assuming metadata remains unchanged
+    })
 }

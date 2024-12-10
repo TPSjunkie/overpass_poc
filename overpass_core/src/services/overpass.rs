@@ -1,65 +1,30 @@
-// ./src/services/overpass.rs
+/*// ./src/services/overpass.rs
+use serde::Deserialize;
+use serde::Serialize;
+use bitcoincore_rpc::Auth;
+use bitcoincore_rpc::Client;
 use crate::services::overpass_db::OverpassDB;
 use anyhow::{anyhow, Result};
 use bitcoin::Network;
-use bitcoincore_rpc::Client;
-use serde::{Deserialize, Serialize};
-use hex;
+use crate::logging::config::Config;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OverpassConfig {
-    pub network: String,
-    pub initial_balance: u64,
-    pub security_bits: u32,
-    pub version: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OverpassState {
-    pub nonce: u64,
-    pub balance: u64,
-    pub merkle_root: Vec<u8>,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OverpassTransactionResponse {
+    pub result: OverpassTransaction,
+    pub hash: String,
+    pub confirmations: i32,
     pub size: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct OverpassTransaction {
-    pub amount: u64,
-    pub data: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct OverpassProof {
-    pub state: Vec<u8>,
-    pub proof: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct OverpassTransactionResult {
-    pub hash: String,
-    pub confirmations: u32,
-    pub size: u32,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct OverpassVerifyResult {
-    pub confirmations: u32,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct OverpassTransactionRequest {
-    pub amount: u64,
-    pub data: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct OverpassTransactionResponse {
-    pub result: OverpassTransactionResult,
+    // Add fields for OverpassTransaction here
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct OverpassVerifyResponse {
-    pub result: OverpassVerifyResult,
+    pub result: bool,
+    pub confirmations: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -78,31 +43,45 @@ pub struct OverpassConfigResponse {
 }
 
 pub struct OverpassService {
-    config: OverpassConfig,
+    pub(crate) config: OverpassConfig,
     db: OverpassDB,
     client: Client,
     network: Network,
+    debug_mode: bool,
+}
+
+impl Default for OverpassService {
+    fn default() -> Self {
+        Self::new(
+            Config::default(),
+            OverpassDB::new("overpass.db").unwrap(),
+            Client::new("http://localhost:8332", Auth::None).expect("Failed to create Bitcoin Core client"),
+            Network::Bitcoin,
+            false,
+        )
+    }
 }
 
 impl OverpassService {
     /// Creates a new `OverpassService` instance.
-    pub fn new(config: OverpassConfig, db: OverpassDB, client: Client, network: Network) -> Self {
+    pub fn new(config: OverpassConfig, db: OverpassDB, client: Client, network: Network, debug_mode: bool) -> Self {
         Self {
             config,
             db,
             client,
             network,
+            debug_mode,
         }
     }
 
     /// Processes a transaction request, updates the state, and returns a response.
     pub fn process_transaction(
         &self,
-        request: OverpassTransactionRequest,
+        request: OverpassTransaction,
     ) -> Result<OverpassTransactionResponse> {
         // Load current state
         let current_state_bytes = self.db.get(b"state")?.ok_or_else(|| anyhow!("State not found"))?;
-        let current_state: OverpassState = bincode::deserialize(&current_state_bytes)?;
+        let current_state: OverpassState = bincode::deserialize(¤t_state_bytes)?;
 
         // Validate transaction
         if request.amount > current_state.balance {
@@ -119,7 +98,7 @@ impl OverpassService {
         };
 
         // Generate proof
-        let proof = self.generate_proof(&current_state, &new_state)?;
+        let proof = self.generate_proof(¤t_state, &new_state)?;
         let state_hash = hex::encode(&proof.state);
         let transaction_hash = hex::encode(&request.data);
         let transaction_data = request.data.clone();
@@ -135,11 +114,10 @@ impl OverpassService {
         self.db.put(format!("data_{}", transaction_hash).as_bytes(), &transaction_data)?;
 
         Ok(OverpassTransactionResponse {
-            result: OverpassTransactionResult {
-                hash: transaction_hash,
-                confirmations: 0,
-                size: request.data.len() as u32,
-            },
+            result: request,
+            hash: transaction_hash,
+            confirmations: 0,
+            size: request.data.len() as u32,
         })
     }
 
@@ -166,9 +144,8 @@ impl OverpassService {
         }
 
         Ok(OverpassVerifyResponse {
-            result: OverpassVerifyResult {
-                confirmations: 1, // Example confirmation count
-            },
+            result: true,
+            confirmations: 1,
         })
     }
 
@@ -192,4 +169,4 @@ impl OverpassService {
         self.db.put(b"state", &state_bytes)?;
         Ok(())
     }
-}
+}*/

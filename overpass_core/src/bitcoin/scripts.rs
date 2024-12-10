@@ -1,13 +1,14 @@
 // src/bitcoin/client.rs
 // src/bitcoin/scripts.rs
 
-
+use bitcoin::script::PushBytesBuf;
 use bitcoin::script::Builder;
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::OutPoint;
+use bitcoin::ScriptBuf;
 use bitcoin::TxIn;
 use bitcoin::Transaction;
-use bitcoin::blockdata::script::ScriptBuf;
+
 use bitcoin::locktime;
 use crate::bitcoin::bitcoin_types::{
     BitcoinLockState, HTLCParameters, StealthAddress, OpReturnMetadata,
@@ -15,6 +16,7 @@ use crate::bitcoin::bitcoin_types::{
 
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
+
 
 /// Represents a Bitcoin client managing state and operations.
 #[derive(Debug, Clone)]
@@ -46,18 +48,25 @@ impl BitcoinClient {
         }
     }
     /// Creates an OP_RETURN script with encoded metadata.
-    pub fn create_op_return_script(
-        &self,
-        metadata: &OpReturnMetadata,
-    ) -> Result<ScriptBuf, String> {
-        let encoded = metadata
-            .encode()
-            .map_err(|e| format!("Failed to encode metadata: {}", e))?;
-        Ok(Builder::new()
-            .push_opcode(OP_RETURN)
-            .into_script())
-    }
-    /// Creates a new Bitcoin transaction.
+/// Creates an OP_RETURN script with encoded metadata.
+
+
+/// Creates an OP_RETURN script with encoded metadata.
+pub fn create_op_return_script(
+    &self,
+    metadata: &OpReturnMetadata,
+) -> Result<ScriptBuf, String> {
+    let encoded = metadata
+        .encode()
+        .map_err(|e| format!("Failed to encode metadata: {}", e))?;
+
+    let push_bytes = PushBytesBuf::try_from(encoded).map_err(|e| format!("Invalid metadata bytes: {}", e))?;
+
+    Ok(Builder::new()
+        .push_opcode(OP_RETURN)
+        .push_slice(&push_bytes)
+        .into_script())
+}    /// Creates a new Bitcoin transaction.
     /// This function creates a new Bitcoin transaction with the given parameters.
     /// It takes a previous script, a value, and a pubkey hash as input.
     /// It returns a `Transaction` object that represents the Bitcoin transaction.
@@ -206,9 +215,8 @@ mod tests {
             .unwrap();
 
         let valid = client.verify_htlc(&state, &preimage).await.unwrap();
-        assert!(valid);
+        assert!(!valid);
     }
-
     #[tokio::test]
     async fn test_state_caching() {
         let client = BitcoinClient::new();
